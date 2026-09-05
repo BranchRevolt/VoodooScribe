@@ -1,0 +1,23 @@
+# Rust
+/src-tauri/target/
+
+# Node
+node_modules/
+dist/
+
+# Model weights are downloaded at runtime into the app data dir, never committed.
+*.bin
+*.gguf
+/src-tauri/models/
+# EXCEPT the 865 KB Silero VAD model: it is embedded with include_bytes! at build
+# time, so a fresh clone cannot compile without it.
+!/src-tauri/resources/models/*.bin
+
+# Python venv used only to regenerate test fixtures (tests/gen_fixtures.py).
+# It self-ignores via an internal .gitignore, but don't rely on that.
+.venv-fixtures/
+
+# Misc
+.DS_Store
+Thumbs.db
+*.tmp
