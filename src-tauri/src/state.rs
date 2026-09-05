@@ -1,10 +1,10 @@
 // SPDX-FileCopyrightText: 2026 WarpCoreDev
 // SPDX-License-Identifier: GPL-3.0-or-later
 
+use parking_lot::Mutex;
 use std::path::PathBuf;
 use std::sync::atomic::AtomicBool;
 use std::sync::Arc;
-use parking_lot::Mutex;
 use tauri::AppHandle;
 
 use crate::models::{downloader, registry, ModelKind, WhisperSize};
@@ -54,6 +54,12 @@ pub struct AppState {
     pub summarize_cancel: Arc<AtomicBool>,
     /// Cancels the running model download.
     pub download_cancel: Arc<AtomicBool>,
+}
+
+impl Default for AppState {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl AppState {
@@ -138,7 +144,9 @@ impl AppState {
     /// Called once at startup: deletes leftover .tmp files, then auto-loads the
     /// finished models.
     pub fn auto_discover(&self, app: &AppHandle) {
-        let Ok(models_dir) = downloader::models_dir(app) else { return };
+        let Ok(models_dir) = downloader::models_dir(app) else {
+            return;
+        };
 
         // Partial downloads from previous sessions would confuse the downloader.
         if let Ok(entries) = std::fs::read_dir(&models_dir) {
