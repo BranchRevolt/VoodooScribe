@@ -52,6 +52,8 @@ with the network cable unplugged (once the models are downloaded).
   endings, verb forms and word order — which matters in inflected languages, at the price of no
   longer being a literal record.
 
+<img src="assets/screenshots/summary.png" alt="A structured report generated locally from the transcript" width="785">
+
 **Getting it out**
 - Transcript export: `txt`, `srt`, `vtt`, `md`, `json`, `docx`
 - Summary export: `md`, `txt`, `docx`
@@ -99,6 +101,8 @@ detector and an FFmpeg binary for the formats Symphonia cannot decode.
 The app picks a recommendation for you based on detected VRAM — up to Large v3 on a card that can
 hold it — and warns you when a model needs more memory than you have. You can always override the
 choice or point the app at your own `ggml-*.bin` file.
+
+<img src="assets/screenshots/models_tab.png" alt="Model manager showing detected VRAM, the recommended Whisper build and the installed models" width="785">
 
 ## Installing
 
