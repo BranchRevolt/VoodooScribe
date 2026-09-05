@@ -11,8 +11,8 @@ use llama_cpp_2::model::LlamaModel;
 
 use crate::error::{AppError, AppResult};
 use crate::state::{AppState, LlmCache};
-use crate::transcribe::Segment;
 use crate::summarize;
+use crate::transcribe::Segment;
 
 /// Progress for the summarize / polish LLM op, emitted as `summarize://progress`.
 /// Only one of these runs at a time, so both commands share the event.
@@ -26,10 +26,17 @@ struct SummarizeProgress {
 fn progress_emitter(app: AppHandle) -> impl FnMut(u32, u32) {
     let mut last: i32 = -1;
     move |done: u32, total: u32| {
-        let pct = if total > 0 { (done * 100 / total).min(100) as i32 } else { 0 };
+        let pct = if total > 0 {
+            (done * 100 / total).min(100) as i32
+        } else {
+            0
+        };
         if pct != last {
             last = pct;
-            let _ = app.emit("summarize://progress", SummarizeProgress { percent: pct as u8 });
+            let _ = app.emit(
+                "summarize://progress",
+                SummarizeProgress { percent: pct as u8 },
+            );
         }
     }
 }
@@ -66,6 +73,9 @@ pub async fn cmd_summarize(
     // "brief" = short plain retelling (default); "structured" = detailed report
     // with an overall topic, sub-topic sections, theses and lists. Unknown → brief.
     mode: Option<String>,
+    // ISO 639-1 code the user picked on the transcribe screen; None on auto, where
+    // the script of the transcript decides instead.
+    language: Option<String>,
 ) -> Result<String, AppError> {
     let llm_path = state
         .llm_model_path
@@ -79,7 +89,11 @@ pub async fn cmd_summarize(
     // The structured report is much longer than a brief summary and needs more
     // room to generate; brief mode keeps the tuned defaults.
     let structured = mode.as_deref() == Some("structured");
-    let prompt = if structured { STRUCTURED_PROMPT } else { SUMMARIZE_PROMPT };
+    let prompt = if structured {
+        STRUCTURED_PROMPT
+    } else {
+        SUMMARIZE_PROMPT
+    };
     let opts = if structured {
         summarize::llama::SummarizeOptions {
             max_new_tokens: 2048,
@@ -98,7 +112,15 @@ pub async fn cmd_summarize(
     tauri::async_runtime::spawn_blocking(move || {
         let _claim = claim;
         let model = cached_llm(&cache, &llm_path)?;
-        summarize::summarize(&model, prompt, &transcript, &opts, &cancel, progress)
+        summarize::summarize(
+            &model,
+            prompt,
+            &transcript,
+            language.as_deref(),
+            &opts,
+            &cancel,
+            progress,
+        )
     })
     .await
     .map_err(|e| AppError::Other(e.to_string()))?
@@ -118,6 +140,8 @@ pub async fn cmd_polish_transcript(
     state: State<'_, AppState>,
     segments: Vec<Segment>,
     mode: Option<String>,
+    // See cmd_summarize: the user's language pick, None on auto.
+    language: Option<String>,
 ) -> Result<Vec<Segment>, AppError> {
     let prompt = if mode.as_deref() == Some("edited") {
         POLISH_EDITED_PROMPT
@@ -141,7 +165,14 @@ pub async fn cmd_polish_transcript(
     let result = tauri::async_runtime::spawn_blocking(move || {
         let _claim = claim;
         let model = cached_llm(&cache, &llm_path)?;
-        summarize::polish(&model, prompt, &segments, &cancel, progress)
+        summarize::polish(
+            &model,
+            prompt,
+            &segments,
+            language.as_deref(),
+            &cancel,
+            progress,
+        )
     })
     .await
     .map_err(|e| AppError::Other(e.to_string()))??;
@@ -151,7 +182,9 @@ pub async fn cmd_polish_transcript(
     if result.rejected_lines > 0 {
         let _ = app.emit(
             "summarize://degraded",
-            DegradedEvent { lines: result.rejected_lines },
+            DegradedEvent {
+                lines: result.rejected_lines,
+            },
         );
     }
     Ok(result.segments)
