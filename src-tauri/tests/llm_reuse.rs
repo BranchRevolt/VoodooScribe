@@ -58,29 +58,53 @@ fn one_model_serves_repeated_operations() {
     };
     let model = load_model(&path).expect("model load failed");
     let cancel = AtomicBool::new(false);
-    let opts = SummarizeOptions { max_new_tokens: 96, ..SummarizeOptions::default() };
+    let opts = SummarizeOptions {
+        max_new_tokens: 96,
+        ..SummarizeOptions::default()
+    };
 
     for run in 1..=2 {
-        let out = summarize(&model, PROMPT, TEXT, &opts, &cancel, |_, _| {})
+        let out = summarize(&model, PROMPT, TEXT, Some("en"), &opts, &cancel, |_, _| {})
             .unwrap_or_else(|e| panic!("summarize run {run} failed: {e:?}"));
-        assert!(!out.trim().is_empty(), "summarize run {run} produced nothing");
+        assert!(
+            !out.trim().is_empty(),
+            "summarize run {run} produced nothing"
+        );
     }
 
     // A different operation on the same cached model must work too.
     let segments: Vec<Segment> = TEXT
         .split(" and ")
         .enumerate()
-        .map(|(i, t)| Segment { t0: i as i64 * 1000, t1: (i as i64 + 1) * 1000, text: t.to_string() })
+        .map(|(i, t)| Segment {
+            t0: i as i64 * 1000,
+            t1: (i as i64 + 1) * 1000,
+            text: t.to_string(),
+        })
         .collect();
-    let polished = polish(&model, POLISH_PROMPT, &segments, &cancel, |_, _| {})
-        .expect("polish on the reused model failed")
-        .segments;
+    let polished = polish(
+        &model,
+        POLISH_PROMPT,
+        &segments,
+        Some("en"),
+        &cancel,
+        |_, _| {},
+    )
+    .expect("polish on the reused model failed")
+    .segments;
     // The pass edits in place: same count, same order, same timecodes, whatever
     // the model answers.
-    assert_eq!(polished.len(), segments.len(), "polish changed the number of segments");
+    assert_eq!(
+        polished.len(),
+        segments.len(),
+        "polish changed the number of segments"
+    );
     assert!(polished.iter().all(|p| !p.text.trim().is_empty()));
     assert!(
-        polished.iter().zip(&segments).all(|(a, b)| a.t0 == b.t0 && a.t1 == b.t1),
+        polished
+            .iter()
+            .zip(&segments)
+            .all(|(a, b)| a.t0 == b.t0 && a.t1 == b.t1),
         "polish moved the timecodes",
     );
 }
@@ -95,7 +119,7 @@ fn cancel_flag_stops_generation() {
     let model = load_model(&path).expect("model load failed");
     let cancel = AtomicBool::new(true);
     let opts = SummarizeOptions::default();
-    let err = summarize(&model, PROMPT, TEXT, &opts, &cancel, |_, _| {})
+    let err = summarize(&model, PROMPT, TEXT, Some("en"), &opts, &cancel, |_, _| {})
         .expect_err("a pre-set cancel flag must stop the run");
     assert!(
         matches!(err, voodooscribe_lib::error::AppError::Cancelled),
