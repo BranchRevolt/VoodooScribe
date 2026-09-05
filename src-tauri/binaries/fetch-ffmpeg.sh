@@ -55,19 +55,37 @@ fetch_win_arm()    { fetch_btbn "ffmpeg-master-latest-winarm64-lgpl.zip"     "ff
 # which ships static notarized FFmpeg for both arches. They are GPL builds, which
 # is compatible with this app's own GPL-3.0-or-later licence; either way a binary
 # release must ship FFmpeg's corresponding source or a written offer for it.
+# osxexperts puts the FFmpeg version in the file name (ffmpeg80intel.zip,
+# ffmpeg9arm.zip), and drops the old file when a new one is published, so a
+# hard-coded link breaks on every release. Read the current name off the index
+# page instead, falling back to a known one if the page cannot be parsed.
+osxexperts_url() {
+  local pattern="$1" fallback="$2" name
+  name="$(curl -fsL --retry 3 https://www.osxexperts.net/ \
+          | grep -oE "ffmpeg[0-9]+${pattern}\.zip" | head -n1)" || true
+  if [ -n "$name" ]; then
+    echo "https://www.osxexperts.net/$name"
+  else
+    echo "$fallback"
+  fi
+}
+
+fetch_mac() {
+  local out="$1" url="$2"
+  echo "→ $out  ($url)"
+  curl -fL --retry 3 -o "$out.zip" "$url"
+  unzip -qo "$out.zip" -d . && rm -f "$out.zip"
+  [ -f ffmpeg ] && mv -f ffmpeg "$out"
+  chmod +x "$out"
+}
+
 fetch_mac_arm() {
-  echo "→ ffmpeg-aarch64-apple-darwin (osxexperts, GPL static)"
-  curl -fL --retry 3 -o ffmpeg-aarch64-apple-darwin.zip "https://www.osxexperts.net/ffmpeg711arm.zip"
-  unzip -qo ffmpeg-aarch64-apple-darwin.zip -d . && rm -f ffmpeg-aarch64-apple-darwin.zip
-  [ -f ffmpeg ] && mv -f ffmpeg ffmpeg-aarch64-apple-darwin
-  chmod +x ffmpeg-aarch64-apple-darwin
+  fetch_mac ffmpeg-aarch64-apple-darwin \
+    "$(osxexperts_url arm https://www.osxexperts.net/ffmpeg9arm.zip)"
 }
 fetch_mac_x64() {
-  echo "→ ffmpeg-x86_64-apple-darwin (osxexperts, GPL static)"
-  curl -fL --retry 3 -o ffmpeg-x86_64-apple-darwin.zip "https://www.osxexperts.net/ffmpeg711intel.zip"
-  unzip -qo ffmpeg-x86_64-apple-darwin.zip -d . && rm -f ffmpeg-x86_64-apple-darwin.zip
-  [ -f ffmpeg ] && mv -f ffmpeg ffmpeg-x86_64-apple-darwin
-  chmod +x ffmpeg-x86_64-apple-darwin
+  fetch_mac ffmpeg-x86_64-apple-darwin \
+    "$(osxexperts_url intel https://www.osxexperts.net/ffmpeg80intel.zip)"
 }
 
 if [ "${1:-}" = "--all" ]; then
