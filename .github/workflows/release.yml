@@ -35,10 +35,10 @@ jobs:
           - platform: ubuntu-22.04
             target: x86_64-unknown-linux-gnu
             macos_target: ""
-          # Pinned rather than windows-latest: that image now ships Visual Studio
-          # 2026 and CMake 4.4, which whisper.cpp and llama.cpp are not built
-          # against — ggml's ASM sources trip CMake 4's CMP0194 policy change.
-          - platform: windows-2022
+          # windows-2025 with the Ninja generator is what llama.cpp's own
+          # build-vulkan.yml uses; windows-latest now ships Visual Studio 2026 and
+          # CMake 4.4, which ggml is not built against.
+          - platform: windows-2025
             target: x86_64-pc-windows-msvc
             macos_target: ""
           # Apple silicon starts at macOS 11; ggml's use of std::filesystem needs
@@ -80,18 +80,56 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y vulkan-sdk
 
-      # Provides the headers and glslc. The installer is the Qt installer
-      # framework, so it takes these three flags to run unattended.
+      # ggml configures a helper tool (vulkan-shaders-gen) in a nested CMake run
+      # that does not inherit the Visual Studio environment, so that run finds no
+      # compiler and dies on "No CMAKE_CXX_COMPILER could be found". This puts the
+      # MSVC variables into the job environment, where the nested run picks them up.
+      - name: Set up MSVC environment
+        if: matrix.platform == 'windows-2025'
+        uses: ilammy/msvc-dev-cmd@v1
+        with:
+          arch: x64
+
+      # Version, install path and environment variables copied from llama.cpp's
+      # build-vulkan.yml: the installer lays the SDK out under a versioned
+      # directory, so VULKAN_SDK has to name that directory and not its parent.
       - name: Windows Vulkan SDK
-        if: matrix.platform == 'windows-2022'
+        if: matrix.platform == 'windows-2025'
+        shell: pwsh
+        env:
+          VULKAN_VERSION: 1.4.357.0
+        run: |
+          curl.exe -o "$env:RUNNER_TEMP/VulkanSDK-Installer.exe" -L "https://sdk.lunarg.com/sdk/download/${env:VULKAN_VERSION}/windows/vulkansdk-windows-X64-${env:VULKAN_VERSION}.exe"
+          & "$env:RUNNER_TEMP\VulkanSDK-Installer.exe" --accept-licenses --default-answer --confirm-command install
+          Add-Content $env:GITHUB_ENV "VULKAN_SDK=C:\VulkanSDK\${env:VULKAN_VERSION}"
+          Add-Content $env:GITHUB_PATH "C:\VulkanSDK\${env:VULKAN_VERSION}\bin"
+
+      # ggml builds a helper tool (vulkan-shaders-gen) through a nested CMake run.
+      # Under the Visual Studio generator that run inherits no compiler and dies on
+      # "No CMAKE_CXX_COMPILER could be found"; llama.cpp's own CI therefore builds
+      # with Ninja. The cmake crate has no switch for this, but it reads
+      # CMAKE_GENERATOR from the environment.
+      - name: Ninja generator
+        if: matrix.platform == 'windows-2025'
         shell: pwsh
         run: |
-          curl.exe -L -o vulkan_sdk.exe https://sdk.lunarg.com/sdk/download/latest/windows/vulkan_sdk.exe
-          .\vulkan_sdk.exe --root C:\VulkanSDK --accept-licenses --default-answer --confirm-command install
-          "VULKAN_SDK=C:\VulkanSDK" | Out-File -FilePath $env:GITHUB_ENV -Append
-          "C:\VulkanSDK\Bin" | Out-File -FilePath $env:GITHUB_PATH -Append
+          choco install ninja -y --no-progress
+          Add-Content $env:GITHUB_ENV "CMAKE_GENERATOR=Ninja"
 
       # macOS needs no GPU SDK: Metal is part of the system.
+
+      # Below 10.15 libc++ marks the whole of std::filesystem unavailable, which is
+      # what ggml-backend-reg.cpp is written against. MACOSX_DEPLOYMENT_TARGET in
+      # the environment did not reach the compiler, so the value goes through a
+      # toolchain file: llama.cpp passes -DCMAKE_OSX_DEPLOYMENT_TARGET explicitly,
+      # and CMAKE_TOOLCHAIN_FILE is the one define the cmake crate reads from the
+      # environment.
+      - name: Pin the macOS deployment target
+        if: startsWith(matrix.platform, 'macos')
+        run: |
+          echo 'set(CMAKE_OSX_DEPLOYMENT_TARGET "${{ matrix.macos_target }}" CACHE STRING "" FORCE)' \
+            > "$RUNNER_TEMP/osx-target.cmake"
+          echo "CMAKE_TOOLCHAIN_FILE=$RUNNER_TEMP/osx-target.cmake" >> $GITHUB_ENV
 
       - uses: actions/setup-node@v4
         with:
@@ -113,7 +151,7 @@ jobs:
       # Invoked through `bash` rather than directly: a file added through the
       # GitHub web UI is stored mode 644, with no execute bit.
       - name: Fetch FFmpeg sidecar
-        if: matrix.platform != 'windows-2022'
+        if: matrix.platform != 'windows-2025'
         shell: bash
         run: bash src-tauri/binaries/fetch-ffmpeg.sh
 
@@ -122,7 +160,7 @@ jobs:
       # cases, and it unpacks with `unzip`, which Git Bash does not always carry.
       # The archive and the sidecar name are the same ones the script uses.
       - name: Fetch FFmpeg sidecar (Windows)
-        if: matrix.platform == 'windows-2022'
+        if: matrix.platform == 'windows-2025'
         shell: pwsh
         run: |
           $url = "https://github.com/BtbN/FFmpeg-Builds/releases/download/latest/ffmpeg-master-latest-win64-lgpl.zip"
