@@ -144,11 +144,13 @@ export const ipc = {
   cancelTranscribe: () => invoke<void>("cmd_cancel_transcribe"),
 
   // summarization
-  summarize: (transcript: string, mode: SummaryMode) =>
-    invoke<string>("cmd_summarize", { transcript, mode }),
+  // `language` is the ISO 639-1 code chosen on the transcribe screen, or null on
+  // auto — the backend then infers it from the transcript's script.
+  summarize: (transcript: string, mode: SummaryMode, language: string | null) =>
+    invoke<string>("cmd_summarize", { transcript, mode, language }),
   // Readability pass. "verbatim" keeps the words, "edited" also fixes grammar.
-  polishTranscript: (segments: Segment[], mode: PolishMode) =>
-    invoke<Segment[]>("cmd_polish_transcript", { segments, mode }),
+  polishTranscript: (segments: Segment[], mode: PolishMode, language: string | null) =>
+    invoke<Segment[]>("cmd_polish_transcript", { segments, mode, language }),
   // Cancels a running summarize / polish.
   cancelSummarize: () => invoke<void>("cmd_cancel_summarize"),
 
