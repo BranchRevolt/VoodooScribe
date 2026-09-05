@@ -18,12 +18,44 @@ on:
         description: "Tag to create, e.g. v1.0.0"
         required: true
         default: v1.0.0
+      only:
+        description: "Build a single platform instead of all four"
+        required: false
+        default: all
+        type: choice
+        options: [all, ubuntu-22.04, windows-2025, macos-14, macos-15-intel]
 
 env:
   CARGO_TERM_COLOR: always
 
 jobs:
+  # Picks the build matrix. A matrix cannot be filtered by a workflow input
+  # directly — the `matrix` context is not available in a job-level `if` — so the
+  # list is emitted as JSON here and consumed with fromJSON below. That makes
+  # rebuilding one platform after a fix cost one runner instead of four.
+  matrix:
+    runs-on: ubuntu-latest
+    outputs:
+      include: ${{ steps.pick.outputs.include }}
+    steps:
+      - id: pick
+        env:
+          ONLY: ${{ github.event.inputs.only || 'all' }}
+        run: |
+          all='[
+            {"platform":"ubuntu-22.04",   "target":"x86_64-unknown-linux-gnu", "macos_target":""},
+            {"platform":"windows-2025",   "target":"x86_64-pc-windows-msvc",   "macos_target":""},
+            {"platform":"macos-14",       "target":"aarch64-apple-darwin",     "macos_target":"11.0"},
+            {"platform":"macos-15-intel", "target":"x86_64-apple-darwin",      "macos_target":"10.15"}
+          ]'
+          if [ "$ONLY" = "all" ]; then
+            echo "include=$(echo "$all" | jq -c .)" >> "$GITHUB_OUTPUT"
+          else
+            echo "include=$(echo "$all" | jq -c --arg p "$ONLY" '[.[] | select(.platform == $p)]')" >> "$GITHUB_OUTPUT"
+          fi
+
   build:
+    needs: matrix
     permissions:
       contents: write
 
@@ -31,27 +63,7 @@ jobs:
       # One platform failing must not throw away the packages the others produced.
       fail-fast: false
       matrix:
-        include:
-          - platform: ubuntu-22.04
-            target: x86_64-unknown-linux-gnu
-            macos_target: ""
-          # windows-2025 with the Ninja generator is what llama.cpp's own
-          # build-vulkan.yml uses; windows-latest now ships Visual Studio 2026 and
-          # CMake 4.4, which ggml is not built against.
-          - platform: windows-2025
-            target: x86_64-pc-windows-msvc
-            macos_target: ""
-          # Apple silicon starts at macOS 11; ggml's use of std::filesystem needs
-          # 10.15 or newer either way, and libc++ marks the whole header unavailable
-          # below that.
-          - platform: macos-14
-            target: aarch64-apple-darwin
-            macos_target: "11.0"
-          # macos-13 no longer picks up jobs; llama.cpp's build-apple.yml uses this
-          # label for its Intel build.
-          - platform: macos-15-intel
-            target: x86_64-apple-darwin
-            macos_target: "10.15"
+        include: ${{ fromJSON(needs.matrix.outputs.include) }}
 
     runs-on: ${{ matrix.platform }}
 
