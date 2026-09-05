@@ -88,7 +88,7 @@ For a release build covering every platform, fetch all sidecars instead:
 ```
 
 The sidecar binaries are git-ignored — they are tens of MB each. See
-[`src-tauri/binaries/README.md`](../src-tauri/binaries/README.md) for their sources and licences;
+[`src-tauri/binaries/README.md`](../src-tauri/binaries/README.md) for their sources and licenses;
 note that any binary release must ship the corresponding FFmpeg source or a written offer for it.
 
 ## Running the tests
