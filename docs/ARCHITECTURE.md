@@ -135,7 +135,7 @@ Tauri events (`transcribe://progress`, `model://download-progress`, `summarize:/
 
 Cancellation uses `Arc<AtomicBool>` checked at every stage — per packet while decoding, before model
 load, and inside inference. An aborted `full()` returns `Err`, so the code checks the cancel flag
-**first** and reports `Cancelled`; otherwise a user pressing Cancel got an error toast.
+**first** and reports `Canceled`; otherwise a user pressing Cancel got an error toast.
 
 > **Landmine:** `whisper-rs` 0.16's `set_abort_callback_safe` is unsound. Using it corrupted state
 > so that every file after the first failed with `Error code: -6`. `tests/whisper_reuse.rs` is the
