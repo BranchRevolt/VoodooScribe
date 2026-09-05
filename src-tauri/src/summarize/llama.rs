@@ -1,9 +1,6 @@
 // SPDX-FileCopyrightText: 2026 WarpCoreDev
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-use std::path::Path;
-use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::OnceLock;
 use llama_cpp_2::{
     context::params::LlamaContextParams,
     llama_backend::LlamaBackend,
@@ -12,11 +9,14 @@ use llama_cpp_2::{
     sampling::LlamaSampler,
     TokenToStringError,
 };
+use std::path::Path;
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::OnceLock;
 
-use crate::error::{AppError, AppResult};
-use crate::transcribe::Segment;
 use super::chunker::split_chars;
 use super::lines;
+use crate::error::{AppError, AppResult};
+use crate::transcribe::Segment;
 
 pub struct SummarizeOptions {
     pub n_threads: i32,
@@ -37,10 +37,10 @@ impl Default for SummarizeOptions {
                 .unwrap_or(4),
             ctx_size: 8192,
             max_new_tokens: 1024,
-            // A high repeat penalty on a short summary penalizes reused (e.g.
-            // Russian) tokens and makes the model code-switch into English
-            // ("visits к музеям", "Дasha"). This value still stops the greedy
-            // "Спасибо, братцы…" loop.
+            // A high repeat penalty on a short summary penalizes tokens the
+            // language reuses heavily, which makes the model code-switch into
+            // English mid-sentence. This value is low enough to avoid that and
+            // still high enough to stop greedy decoding looping on one phrase.
             temp: 0.5,
             repeat_penalty: 1.15,
             penalty_last_n: 128,
@@ -72,7 +72,10 @@ pub fn load_model(model_path: &Path) -> AppResult<LlamaModel> {
         let raw = e.to_string();
         let required = crate::vram::model_file_size_mb(model_path);
         match crate::vram::classify_load_failure(required, &raw) {
-            Some((required_mb, free_mb)) => AppError::InsufficientMemory { required_mb, free_mb },
+            Some((required_mb, free_mb)) => AppError::InsufficientMemory {
+                required_mb,
+                free_mb,
+            },
             None => AppError::Summarization(raw),
         }
     })
@@ -129,13 +132,20 @@ pub fn summarize(
 
     // Combined in passes that each stay within the budget: a single join of many
     // chunk summaries would overflow the context like an oversized chunk.
-    let mut summary =
-        reduce_summaries(backend, model, &system, chunk_summaries, data_budget, opts, cancel)?;
+    let mut summary = reduce_summaries(
+        backend,
+        model,
+        &system,
+        chunk_summaries,
+        data_budget,
+        opts,
+        cancel,
+    )?;
 
     // Prompt-level rules don't fully stop Qwen3-4B from dropping the odd English
-    // word into a Russian summary ("но presently в Амстердаме"). Stray Latin words
-    // are detected deterministically and passed to one focused corrector run that
-    // replaces only those words; its result is kept only if it reduced the count.
+    // word into a non-English summary. Stray Latin words are detected
+    // deterministically and passed to one focused corrector run that replaces only
+    // those words; its result is kept only if it reduced the count.
     if lang == Some("Russian") {
         let strays = latin_words(&summary);
         if !strays.is_empty() {
@@ -344,7 +354,10 @@ pub fn polish(
     mut progress: impl FnMut(u32, u32),
 ) -> AppResult<PolishResult> {
     if segments.is_empty() {
-        return Ok(PolishResult { segments: Vec::new(), rejected_lines: 0 });
+        return Ok(PolishResult {
+            segments: Vec::new(),
+            rejected_lines: 0,
+        });
     }
     let backend = backend()?;
 
@@ -394,7 +407,14 @@ pub fn polish(
         // model anchors on the last instruction it read, and with three thousand
         // tokens of speech in between it echoes the input back instead of editing
         // it.
-        let answer = generate(backend, model, role, &format!("{text}\n\n---\n\n{rules}"), &opts, cancel)?;
+        let answer = generate(
+            backend,
+            model,
+            role,
+            &format!("{text}\n\n---\n\n{rules}"),
+            &opts,
+            cancel,
+        )?;
 
         // Per line, not per chunk: a number the model never answered, or answered
         // with a summary of its own, keeps its original text.
@@ -409,7 +429,10 @@ pub fn polish(
         out.extend(edited);
     }
     progress(steps, steps);
-    Ok(PolishResult { segments: out, rejected_lines })
+    Ok(PolishResult {
+        segments: out,
+        rejected_lines,
+    })
 }
 
 /// The chunk's speech as one string, used only to measure token density. What the
@@ -469,7 +492,7 @@ fn chunk_segments<'a>(
 /// Runs one generation. `system` is the instruction, `user` the data. Qwen3 needs
 /// ChatML framing or it emits its (English) chain-of-thought instead of an answer;
 /// `/no_think` disables its reasoning mode. The sampler uses a repeat penalty
-/// because plain greedy decoding loops ("Спасибо, братцы. Спасибо, братцы…").
+/// because plain greedy decoding loops on a single phrase indefinitely.
 fn generate(
     backend: &LlamaBackend,
     model: &LlamaModel,
