@@ -7,3 +7,9 @@ rustflags = ["-C", "link-arg=-Wl,--allow-multiple-definition"]
 
 [target.aarch64-unknown-linux-gnu]
 rustflags = ["-C", "link-arg=-Wl,--allow-multiple-definition"]
+
+# The MSVC linker has no --allow-multiple-definition; /FORCE:MULTIPLE is its
+# equivalent and downgrades the duplicate-symbol error to a warning. Untested:
+# no Windows build has been run by hand, only in CI.
+[target.x86_64-pc-windows-msvc]
+rustflags = ["-C", "link-arg=/FORCE:MULTIPLE"]
