@@ -1,32 +1,23 @@
 // SPDX-FileCopyrightText: 2026 WarpCoreDev
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-//! Post-filter for whisper's silence hallucinations.
+//! Post-filter for whisper's silence hallucinations: the YouTube subtitle
+//! boilerplate it was trained on and emits when handed silence or noise.
 //!
-//! Whisper was trained on YouTube subtitles, so on silence or noise it emits the
-//! most frequent phrases from that data: "Спасибо за просмотр!", "Дякую за
-//! перегляд!", "Редактор субтитров А.Синецкая", "Subtitles by the Amara.org
-//! community". Each 30s window hallucinates independently, so a quiet stretch
-//! repeats the same phrase.
-//!
-//! whisper.cpp's own no-speech gate rarely catches these: it drops a segment only
+//! whisper.cpp's own no-speech gate does not catch these. It drops a segment only
 //! when `no_speech_prob > no_speech_thold` and `avg_logprobs < logprob_thold`, and
-//! the model is confident about this boilerplate, so the second condition fails.
-//! The Silero VAD keeps most silence away from the model; this filter removes what
-//! still gets through.
+//! the model is confident about boilerplate, so the second condition never holds.
 //!
-//! The filter works on clauses, not whole segments: whisper glues its filler onto
-//! real speech from the same window ("Так, дякую за перегляд!" is one segment
-//! holding one real word and one hallucination), so the segment can be neither
-//! kept nor dropped as a unit. Splitting on `. ! ? … ; ,` and removing only the
-//! boilerplate clauses keeps the "Так".
+//! Matching is per clause, not per segment: whisper glues its filler onto real
+//! speech from the same window ("Right, thanks for watching!"), so a segment can
+//! be neither kept nor dropped as a unit.
 
 use super::Segment;
 
 /// Phrases whisper produces on silence, already normalized (lowercase, no
 /// punctuation, collapsed whitespace, `ё` → `е`). Matched against a whole clause,
-/// so real speech containing the same words survives ("спасибо за просмотр
-/// записи, коллеги" splits into two clauses, neither of which matches).
+/// so real speech containing the same words survives ("thanks for watching the
+/// recording, everyone" splits into two clauses, neither of which matches).
 const HALLUCINATIONS: &[&str] = &[
     // Russian YouTube subtitle boilerplate
     "спасибо за просмотр",
@@ -53,7 +44,7 @@ const HALLUCINATIONS: &[&str] = &[
     "ставте лайки і підписуйтесь на канал",
     "до нових зустрічей",
     "продовження далі",
-    // English equivalents
+    // English
     "thanks for watching",
     "thank you for watching",
     "thanks for watching and see you next time",
@@ -61,11 +52,76 @@ const HALLUCINATIONS: &[&str] = &[
     "please subscribe",
     "subscribe to my channel",
     "blank audio",
+    // German
+    "vielen dank fürs zuschauen",
+    "vielen dank für s zuschauen",
+    "danke fürs zuschauen",
+    "danke für s zuschauen",
+    "abonniert den kanal",
+    "abonniere den kanal",
+    "abonniert unseren kanal",
+    // French. Apostrophes normalize to spaces, hence "d avoir", "n oubliez".
+    "merci d avoir regardé cette vidéo",
+    "merci d avoir regardé",
+    "abonnez vous à la chaîne",
+    "n oubliez pas de vous abonner",
+    // Spanish
+    "gracias por ver el video",
+    "gracias por ver este video",
+    "gracias por vernos",
+    "suscríbete al canal",
+    "suscríbanse al canal",
+    "no olvides suscribirte",
+    // Italian
+    "grazie per aver guardato il video",
+    "grazie per la visione",
+    "iscriviti al canale",
+    // Portuguese
+    "obrigado por assistir",
+    "obrigada por assistir",
+    "obrigado por assistirem",
+    "inscreva se no canal",
+    // Dutch
+    "bedankt voor het kijken",
+    "bedankt voor het bekijken",
+    "abonneer je op het kanaal",
+    // Polish
+    "dziękuję za obejrzenie",
+    "dziękuję za oglądanie",
+    "subskrybuj kanał",
+    // Turkish
+    "izlediğiniz için teşekkürler",
+    "izlediğiniz için teşekkür ederim",
+    "abone olmayı unutmayın",
+    "kanala abone olun",
+    // Arabic. The translator credit is listed in full: the bare word for
+    // "translation" opens plenty of real sentences.
+    "شكرا لمشاهدتكم",
+    "شكرا على المشاهدة",
+    "اشترك في القناة",
+    "ترجمة نانسي قنقر",
+    // Chinese. No spaces to collapse, so these match as written.
+    "感谢观看",
+    "谢谢观看",
+    "谢谢大家观看",
+    "请订阅",
+    "订阅我的频道",
+    "字幕由amara org社区提供",
+    // Japanese
+    "ご視聴ありがとうございました",
+    "ご視聴ありがとうございます",
+    "最後までご視聴いただきありがとうございました",
+    "チャンネル登録お願いします",
+    "チャンネル登録よろしくお願いします",
+    // Korean
+    "시청해주셔서 감사합니다",
+    "시청해 주셔서 감사합니다",
+    "구독과 좋아요 부탁드립니다",
 ];
 
-/// Subtitle credits. The name changes from window to window ("А.Синецкая",
-/// "А.Семкин", "DimaTorzok", "the Amara.org community"), so these are matched as
-/// prefixes rather than in full. Safe as a prefix rule because no one opens a
+/// Subtitle credits. The name changes from window to window ("Stephanie Geiges",
+/// "DimaTorzok", "the Amara.org community"), so these are matched as prefixes
+/// rather than in full. Safe as a prefix rule because no one opens a
 /// sentence this way in conversation; the list above stays exact because its
 /// phrases are things people do say.
 const CREDIT_PREFIXES: &[&str] = &[
@@ -87,24 +143,58 @@ const CREDIT_PREFIXES: &[&str] = &[
     "transcription by",
     "transcribed by",
     "amara org",
+    "untertitel von",
+    "untertitel im auftrag",
+    "untertitelung des",
+    "untertitelung im auftrag",
+    "sous titres réalisés par",
+    "sous titrage",
+    "subtítulos realizados por",
+    "subtitulado por",
+    "sottotitoli e revisione a cura di",
+    "sottotitoli a cura di",
+    "sottotitoli creati dalla comunità",
+    "legendas pela comunidade",
+    "legendado por",
+    "ondertiteling door",
+    "ondertiteld door",
+    "napisy stworzone przez",
+    "字幕由",
+    "字幕製作",
 ];
 
-// Deliberately in neither list: bare "спасибо" / "до свидания" / "дякую" / "you" /
-// "bye" / "музыка" / "смех". Whisper emits those on silence, but they are also
-// ordinary speech, and deleting real speech is worse than leaving filler in.
-// Bracketed forms like "(музыка)" are still caught by `is_bracketed_marker`.
+// Deliberately in neither list: a bare thanks or farewell in any language, and
+// bare "music" / "laughter". Whisper emits those on silence, but they are also
+// ordinary speech, and deleting real speech is worse than leaving filler in. Each
+// list entry above therefore carries the part that makes it subtitle boilerplate
+// ("thanks for watching", not "thanks"), never the greeting alone.
+// Bracketed forms like "(music)" are still caught by `is_bracketed_marker`.
 
 /// Clause boundaries. The comma is included because whisper attaches its filler
 /// to real speech with one as often as with a full stop.
-const CLAUSE_SEPARATORS: &[char] = &['.', '!', '?', '…', ';', ',', '\n'];
+/// The CJK and Arabic marks are here for the same reason as the Latin ones: those
+/// scripts never use `.` or `,`, so without them a Japanese or Arabic segment is a
+/// single clause and the filler cannot be separated from real speech.
+const CLAUSE_SEPARATORS: &[char] = &[
+    '.', '!', '?', '…', ';', ',', '\n', // Latin and Cyrillic
+    '。', '、', '！', '？', '，', '；', // CJK
+    '،', '؛', '؟', // Arabic
+];
 
 /// Lowercases, maps `ё` → `е`, strips everything that isn't a letter or digit,
 /// and collapses whitespace, so punctuation and casing can't hide a match.
+///
+/// Combining marks are dropped rather than treated as separators: lowercasing
+/// Turkish `İ` yields `i` plus U+0307, which is not alphanumeric, so counting it as
+/// a boundary would split "İzlediğiniz" into two words.
 fn normalize(text: &str) -> String {
     let mut out = String::with_capacity(text.len());
     let mut pending_space = false;
     for ch in text.chars().flat_map(|c| c.to_lowercase()) {
         let ch = if ch == 'ё' { 'е' } else { ch };
+        if matches!(ch, '\u{0300}'..='\u{036F}') {
+            continue;
+        }
         if ch.is_alphanumeric() {
             if pending_space && !out.is_empty() {
                 out.push(' ');
@@ -118,17 +208,16 @@ fn normalize(text: &str) -> String {
     out
 }
 
-/// True when the whole segment is a non-speech marker like `(музыка)`,
+/// True when the whole segment is a non-speech marker like `(music)`,
 /// `[BLANK_AUDIO]` or `*sighs*`: whisper's own annotation, not spoken words.
 fn is_bracketed_marker(text: &str) -> bool {
     let t = text.trim();
     let pairs = [('(', ')'), ('[', ']'), ('{', '}'), ('*', '*'), ('♪', '♪')];
     pairs.iter().any(|&(open, close)| {
-        if t.chars().count() < 2 || t.chars().next() != Some(open) || t.chars().last() != Some(close)
-        {
+        if t.chars().count() < 2 || !t.starts_with(open) || !t.ends_with(close) {
             return false;
         }
-        // The brackets must wrap the whole segment: "(смеётся) Да, ..." closes
+        // The brackets must wrap the whole segment: "(laughs) Yes, ..." closes
         // mid-text, so it is speech with an aside, not a marker.
         let inner = &t[open.len_utf8()..t.len() - close.len_utf8()];
         !inner.contains(open) && !inner.contains(close)
@@ -147,8 +236,8 @@ fn is_boilerplate(normalized: &str) -> bool {
 /// so dropping a clause drops its trailing comma too.
 ///
 /// A full stop only ends a clause when what follows it is not a letter or digit:
-/// the invented credits are full of initials ("А.Синецкая"), and treating those
-/// dots as boundaries would cut the phrase away from its own prefix.
+/// the invented credits are full of initials ("A.Smith"), and treating those dots
+/// as boundaries would cut the phrase away from its own prefix.
 fn split_clauses(text: &str) -> Vec<(&str, &str)> {
     let chars: Vec<(usize, char)> = text.char_indices().collect();
     let ends_clause = |i: usize| -> bool {
@@ -164,8 +253,7 @@ fn split_clauses(text: &str) -> Vec<(&str, &str)> {
     let mut body_start = 0usize;
     let mut sep_start: Option<usize> = None;
 
-    for i in 0..chars.len() {
-        let (idx, ch) = chars[i];
+    for (i, &(idx, ch)) in chars.iter().enumerate() {
         // An open separator run swallows the punctuation and spacing that
         // follows, so "..." or "! " stay one boundary.
         let in_separator = CLAUSE_SEPARATORS.contains(&ch) || ch.is_whitespace();
@@ -272,29 +360,34 @@ mod tests {
     use super::*;
 
     fn seg(t0: i64, text: &str) -> Segment {
-        Segment { t0, t1: t0 + 1000, text: text.into() }
+        Segment {
+            t0,
+            t1: t0 + 1000,
+            text: text.into(),
+        }
     }
 
     #[test]
     fn drops_known_boilerplate() {
-        assert!(is_hallucination("Спасибо за просмотр!"));
-        assert!(is_hallucination("  спасибо за просмотр  "));
-        assert!(is_hallucination("Спасибо за просмотр! Спасибо за просмотр!"));
-        assert!(is_hallucination("Субтитры сделал DimaTorzok"));
         assert!(is_hallucination("Thanks for watching!"));
-        assert!(is_hallucination("Продолжение следует..."));
+        assert!(is_hallucination("  thanks for watching  "));
+        assert!(is_hallucination(
+            "Thanks for watching! Thanks for watching!"
+        ));
+        assert!(is_hallucination("Please subscribe to the channel."));
     }
 
     #[test]
     fn drops_credits_whatever_name_they_carry() {
         // The name changes from window to window, so these are prefix matches.
-        assert!(is_hallucination("Редактор субтитров А.Синецкая Корректор А.Егорова"));
-        assert!(is_hallucination("Редактор субтитров А.Семкин Корректор А.Егорова"));
-        assert!(is_hallucination("Субтитры от Кто-То Ещё"));
-        assert!(is_hallucination("Субтитри від Іван Іванов"));
         assert!(is_hallucination("Subtitles by the Amara.org community"));
+        assert!(is_hallucination("Subtitles by DimaTorzok"));
+        assert!(is_hallucination("Transcription by Someone Else"));
+        assert!(is_hallucination("Untertitel von Stephanie Geiges"));
         // Real speech that opens with the same word is not credits.
-        assert!(!is_hallucination("Субтитры нам нужны на всех языках."));
+        assert!(!is_hallucination(
+            "Subtitles are what we need in every language."
+        ));
     }
 
     #[test]
@@ -305,7 +398,7 @@ mod tests {
         assert!(is_hallucination("."));
         assert!(is_hallucination(" ... "));
         assert!(is_hallucination("—"));
-        assert!(is_hallucination("(музыка)"));
+        assert!(is_hallucination("(music)"));
         assert!(is_hallucination("[BLANK_AUDIO]"));
         assert!(is_hallucination("*sighs*"));
     }
@@ -314,46 +407,95 @@ mod tests {
     fn keeps_bare_words_that_are_also_real_speech() {
         // Common one-word replies. Whisper hallucinates these on silence too, but
         // deleting them would cost real dialogue.
-        assert!(!is_hallucination("Спасибо."));
-        assert!(!is_hallucination("Дякую!"));
-        assert!(!is_hallucination("До свидания."));
-        assert!(!is_hallucination("До побачення."));
+        assert!(!is_hallucination("Thanks."));
+        assert!(!is_hallucination("Thank you!"));
+        assert!(!is_hallucination("Goodbye."));
         assert!(!is_hallucination("Bye."));
-        // The full subtitle phrases still go.
+        // The full subtitle phrase still goes.
+        assert!(is_hallucination("Thank you for watching!"));
+    }
+
+    #[test]
+    fn covers_every_language_the_picker_offers() {
+        assert!(is_hallucination("Спасибо за просмотр!"));
+        assert!(is_hallucination("Продолжение следует..."));
         assert!(is_hallucination("Дякую за перегляд!"));
         assert!(is_hallucination("Дякую за увагу."));
+        assert!(is_hallucination("Vielen Dank fürs Zuschauen!"));
+        assert!(is_hallucination("Merci d\'avoir regardé cette vidéo."));
+        assert!(is_hallucination("¡Gracias por ver el video!"));
+        assert!(is_hallucination("Grazie per aver guardato il video."));
+        assert!(is_hallucination("Obrigado por assistir!"));
+        assert!(is_hallucination("Bedankt voor het kijken."));
+        assert!(is_hallucination("Dziękuję za obejrzenie."));
+        assert!(is_hallucination("İzlediğiniz için teşekkürler."));
+        assert!(is_hallucination("شكرا لمشاهدتكم"));
+        assert!(is_hallucination("感谢观看"));
+        assert!(is_hallucination("ご視聴ありがとうございました"));
+        assert!(is_hallucination("시청해주셔서 감사합니다"));
+
+        // Credits carry a name that changes, so they match on prefix.
+        assert!(is_hallucination(
+            "Редактор субтитров А.Синецкая Корректор А.Егорова"
+        ));
+        assert!(is_hallucination("Субтитри від Іван Іванов"));
+        assert!(is_hallucination(
+            "Sous-titres réalisés par la communauté d\'Amara.org"
+        ));
+        assert!(is_hallucination("Legendas pela comunidade Amara.org"));
+
+        // A bare thank-you in any of them is speech, not boilerplate.
+        assert!(!is_hallucination("Спасибо."));
+        assert!(!is_hallucination("Дякую!"));
+        assert!(!is_hallucination("Danke."));
+        assert!(!is_hallucination("Merci !"));
+        assert!(!is_hallucination("Gracias."));
+        assert!(!is_hallucination("Obrigado."));
+        assert!(!is_hallucination("ありがとう"));
+        assert!(!is_hallucination("감사합니다"));
+    }
+
+    #[test]
+    fn splits_clauses_on_cjk_punctuation() {
+        // Japanese uses 。and 、 rather than . and , — without them the filler and
+        // the real sentence stay one clause and neither can be removed alone.
+        let out = strip_hallucinations("そうですね。ご視聴ありがとうございました。");
+        assert_eq!(out, "そうですね。");
     }
 
     #[test]
     fn strips_filler_glued_onto_real_speech() {
-        // One real word and one hallucination in one segment: dropping it loses
-        // "Так", keeping it shows the filler.
-        assert_eq!(strip_hallucinations("Так, дякую за перегляд!"), "Так");
+        // One real word and one hallucination in one segment: dropping the segment
+        // loses the word, keeping it shows the filler.
+        assert_eq!(strip_hallucinations("Right, thanks for watching!"), "Right");
         assert_eq!(
-            strip_hallucinations("Дякую за перегляд! Мову на українську замінюємо."),
-            "Мову на українську замінюємо."
+            strip_hallucinations("Thanks for watching! Let us move on."),
+            "Let us move on."
         );
         assert_eq!(
-            strip_hallucinations("Да, конечно. Спасибо за просмотр! Идём дальше."),
-            "Да, конечно. Идём дальше."
+            strip_hallucinations("Yes, of course. Thanks for watching! Moving on."),
+            "Yes, of course. Moving on."
         );
     }
 
     #[test]
     fn keeps_real_speech_containing_the_words() {
-        assert!(!is_hallucination("Спасибо за просмотр записи, коллеги."));
-        assert!(!is_hallucination("Расскажите о своём опыте работы."));
-        assert!(!is_hallucination("Спасибо, что нашли время. Начнём с вашего опыта."));
+        assert!(!is_hallucination(
+            "Thanks for watching the recording, everyone."
+        ));
+        assert!(!is_hallucination("Tell me about your work experience."));
+        assert!(!is_hallucination(
+            "Thanks for making the time. Let us start with your background."
+        ));
         // A bracketed aside inside a real sentence is speech, not a marker.
-        assert!(!is_hallucination("(смеётся) Да, это был сложный проект."));
+        assert!(!is_hallucination("(laughs) Yes, that was a hard project."));
         // Untouched text comes back byte-identical, including a segment ending
         // mid-sentence on a comma.
         for text in [
-            "Спасибо за просмотр записи, коллеги.",
-            "Расскажите о своём опыте работы.",
-            "(смеётся) Да, это был сложный проект.",
-            "Тепер збереглося, можете одразу по ньому натискати,",
-            "Ось, наприклад, людина у роботу вам потрапила,",
+            "Thanks for watching the recording, everyone.",
+            "Tell me about your work experience.",
+            "(laughs) Yes, that was a hard project.",
+            "It is saved now, you can click straight through to it,",
         ] {
             assert_eq!(strip_hallucinations(text), text);
         }
@@ -362,49 +504,58 @@ mod tests {
     #[test]
     fn collapses_only_long_runs() {
         let looped = vec![
-            seg(0, "Спасибо за просмотр!"),
-            seg(1000, "Спасибо за просмотр!"),
-            seg(2000, "Спасибо за просмотр!"),
-            seg(3000, "Реальный текст."),
+            seg(0, "Thanks for watching!"),
+            seg(1000, "Thanks for watching!"),
+            seg(2000, "Thanks for watching!"),
+            seg(3000, "Real text."),
         ];
         // Boilerplate goes; the real line stays.
         assert_eq!(clean(looped).len(), 1);
-        // A repeated bare "Спасибо." is handled by collapsing, not filtering:
+        // A repeated bare "Thanks." is handled by collapsing, not filtering:
         // 3+ identical lines in a row keep one.
-        let bare = vec![seg(0, "Спасибо."), seg(1000, "Спасибо."), seg(2000, "Спасибо.")];
+        let bare = vec![
+            seg(0, "Thanks."),
+            seg(1000, "Thanks."),
+            seg(2000, "Thanks."),
+        ];
         assert_eq!(clean(bare).len(), 1);
 
-        let twice = vec![seg(0, "Да, конечно."), seg(1000, "Да, конечно."), seg(2000, "Дальше.")];
+        let twice = vec![
+            seg(0, "Yes, of course."),
+            seg(1000, "Yes, of course."),
+            seg(2000, "Next."),
+        ];
         assert_eq!(collapse_repeats(twice).len(), 3);
 
+        // Normalization makes the run match despite casing and punctuation.
         let thrice = vec![
-            seg(0, "Да, конечно."),
-            seg(1000, "Да, конечно!"),
-            seg(2000, "да конечно"),
-            seg(3000, "Дальше."),
+            seg(0, "Yes, of course."),
+            seg(1000, "Yes, of course!"),
+            seg(2000, "yes of course"),
+            seg(3000, "Next."),
         ];
         let out = collapse_repeats(thrice);
         assert_eq!(out.len(), 2);
         assert_eq!(out[0].t0, 0);
-        assert_eq!(out[1].text, "Дальше.");
+        assert_eq!(out[1].text, "Next.");
     }
 
     #[test]
     fn clean_keeps_the_interview() {
         let segs = vec![
-            seg(0, "Спасибо за просмотр!"),
-            seg(30_000, "Спасибо за просмотр!"),
-            seg(60_000, "Спасибо за просмотр!"),
-            seg(120_000, "Здравствуйте, расскажите о себе."),
-            seg(125_000, "(музыка)"),
-            seg(130_000, "Так, дякую за перегляд!"),
-            seg(135_000, "Я работал бэкенд-разработчиком пять лет."),
+            seg(0, "Thanks for watching!"),
+            seg(30_000, "Thanks for watching!"),
+            seg(60_000, "Thanks for watching!"),
+            seg(120_000, "Hello, tell me about yourself."),
+            seg(125_000, "(music)"),
+            seg(130_000, "Right, thanks for watching!"),
+            seg(135_000, "I worked as a backend developer for five years."),
         ];
         let out = clean(segs);
         assert_eq!(out.len(), 3);
-        assert_eq!(out[0].text, "Здравствуйте, расскажите о себе.");
+        assert_eq!(out[0].text, "Hello, tell me about yourself.");
         // The filler goes, the real word it was glued to stays.
-        assert_eq!(out[1].text, "Так");
+        assert_eq!(out[1].text, "Right");
         assert_eq!(out[1].t0, 130_000);
         assert_eq!(out[2].t0, 135_000);
     }
