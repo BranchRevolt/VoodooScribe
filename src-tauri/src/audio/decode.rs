@@ -145,7 +145,9 @@ pub fn decode_to_pcm_with_progress(
 fn collect_samples(buf: &AudioBufferRef<'_>, channels: u16, out: &mut Vec<f32>) {
     // A mid-stream spec change would make `chan(ch)` panic on a narrower buffer,
     // so clamp to what this buffer carries.
-    let channels = channels.min(buf.spec().channels.count().max(1) as u16).max(1);
+    let channels = channels
+        .min(buf.spec().channels.count().max(1) as u16)
+        .max(1);
     match buf {
         AudioBufferRef::F32(b) => {
             let frames = b.frames();
@@ -190,10 +192,7 @@ fn collect_samples(buf: &AudioBufferRef<'_>, channels: u16, out: &mut Vec<f32>) 
         _ => {
             // convert less common formats to f32 via symphonia's built-in converter
             let mut tmp: symphonia::core::audio::AudioBuffer<f32> =
-                symphonia::core::audio::AudioBuffer::new(
-                    buf.frames() as u64,
-                    *buf.spec(),
-                );
+                symphonia::core::audio::AudioBuffer::new(buf.frames() as u64, *buf.spec());
             buf.convert(&mut tmp);
             let frames = tmp.frames();
             for i in 0..frames {
