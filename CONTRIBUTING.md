@@ -33,7 +33,7 @@ through i18n with both `en` and `ru` translations.
 ```
 
 **Heavy work never blocks the UI.** Anything that decodes, resamples, transcribes or generates runs
-in `spawn_blocking`, reports progress through a Tauri event, and honours the cancellation flag at
+in `spawn_blocking`, reports progress through a Tauri event, and honors the cancellation flag at
 every stage.
 
 **IPC is typed.** Add commands through `src/lib/ipc.ts`. There is no `invoke("some-string")` in this
@@ -84,7 +84,7 @@ Include:
 
 Please do not attach recordings containing anything private. A description of the audio is enough.
 
-## Licence
+## License
 
 VoodooScribe is GPL-3.0-or-later. By contributing you agree that your contribution is licensed under
 the same terms. There is no CLA.
