@@ -157,15 +157,15 @@ has been in daily use on Linux throughout development, but you should know:
 - **[CONTRIBUTING.md](CONTRIBUTING.md)** — development workflow and house rules
 - **[CHANGELOG.md](CHANGELOG.md)** — release history
 
-## Licence
+## License
 
 VoodooScribe is free software under the **[GNU General Public License v3.0 or later](LICENSE)**.
 
 Copyright (C) 2026 WarpCoreDev
 
 Third-party components — whisper.cpp, llama.cpp, Tauri, Symphonia, FFmpeg, the Silero VAD model and
-the downloadable Whisper/Qwen models — keep their own licences, listed in
+the downloadable Whisper/Qwen models — keep their own licenses, listed in
 **[THIRD-PARTY-NOTICES.md](THIRD-PARTY-NOTICES.md)**.
 
-> Binary releases bundle FFmpeg (LGPL, or GPL on macOS). As required by those licences, each release
+> Binary releases bundle FFmpeg (LGPL, or GPL on macOS). As required by those licenses, each release
 > must ship the corresponding FFmpeg source or a written offer to provide it.
