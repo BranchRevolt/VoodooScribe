@@ -193,7 +193,7 @@ export const useStore = create<AppStore>((set, get) => ({
   transcribeLang: null,
   setTranscribeLang: (l) => set({ transcribeLang: l }),
   // On by default: without the VAD whisper is fed silence and fills it with the
-  // subtitle boilerplate it was trained on ("Спасибо за просмотр!").
+  // subtitle boilerplate it was trained on ("Thanks for watching!").
   useVad: localStorage.getItem("useVad") !== "0",
   setUseVad: (v) => {
     localStorage.setItem("useVad", v ? "1" : "0");
