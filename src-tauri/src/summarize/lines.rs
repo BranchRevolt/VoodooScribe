@@ -25,6 +25,37 @@ const MAX_GROWN_WORDS: f64 = 1.8;
 /// Short lines are mostly filler and punctuation, where ratios mean little; allow
 /// a fixed slack on top of the ratios above.
 const WORD_SLACK: usize = 3;
+/// The same slack when the unit of measure is characters rather than words, which
+/// is roughly the same amount of text.
+const CHAR_SLACK: usize = 6;
+
+/// How the length of a line is measured.
+///
+/// Chinese and Japanese are written without spaces between words, so
+/// `split_whitespace` reports one "word" for a whole sentence and every ratio below
+/// collapses to 1 against 1 — the check would pass anything, including an answer
+/// that dropped half the utterance.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum Unit {
+    Words,
+    Chars,
+}
+
+impl Unit {
+    fn count(self, text: &str) -> usize {
+        match self {
+            Unit::Words => text.split_whitespace().count(),
+            Unit::Chars => text.chars().filter(|c| !c.is_whitespace()).count(),
+        }
+    }
+
+    fn slack(self) -> usize {
+        match self {
+            Unit::Words => WORD_SLACK,
+            Unit::Chars => CHAR_SLACK,
+        }
+    }
+}
 
 /// Renders the chunk as the numbered list the model is asked to mirror.
 pub fn number(segments: &[Segment]) -> String {
@@ -95,32 +126,37 @@ pub fn parse(answer: &str, expected: usize) -> Vec<Option<String>> {
 /// Whether `edited` is still the same utterance as `original`, rather than a
 /// summary, a refusal or invented text. Checked per line, so one bad answer costs
 /// one line.
-pub fn plausible(original: &str, edited: &str) -> bool {
+pub fn plausible(original: &str, edited: &str, unit: Unit) -> bool {
     let edited = edited.trim();
     if edited.is_empty() {
         return false;
     }
-    let src = original.split_whitespace().count();
-    let ans = edited.split_whitespace().count();
+    let src = unit.count(original);
+    let ans = unit.count(edited);
     if src == 0 {
         return true;
     }
+    let slack = unit.slack();
     let min = (src as f64 * MIN_KEPT_WORDS) as usize;
-    let max = (src as f64 * MAX_GROWN_WORDS) as usize + WORD_SLACK;
-    ans >= min.saturating_sub(WORD_SLACK) && ans <= max
+    let max = (src as f64 * MAX_GROWN_WORDS) as usize + slack;
+    ans >= min.saturating_sub(slack) && ans <= max
 }
 
 /// Applies the parsed answer to a chunk. Every segment comes back with its own
 /// timecodes; the count and the order are those of the input, always.
 /// Returns the segments and how many of them had to keep their original text.
-pub fn apply(segments: &[Segment], answers: &[Option<String>]) -> (Vec<Segment>, usize) {
+pub fn apply(
+    segments: &[Segment],
+    answers: &[Option<String>],
+    unit: Unit,
+) -> (Vec<Segment>, usize) {
     let mut rejected = 0usize;
     let out = segments
         .iter()
         .enumerate()
         .map(|(i, seg)| {
             let text = match answers.get(i).and_then(|a| a.as_deref()) {
-                Some(edited) if plausible(&seg.text, edited) => edited.to_string(),
+                Some(edited) if plausible(&seg.text, edited, unit) => edited.to_string(),
                 _ => {
                     rejected += 1;
                     seg.text.clone()
@@ -178,7 +214,7 @@ mod tests {
     #[test]
     fn a_missing_number_keeps_the_original_line() {
         let src = [seg(0, 1, "first line here"), seg(1, 2, "second line here")];
-        let (out, rejected) = apply(&src, &parse("1. First line here.", 2));
+        let (out, rejected) = apply(&src, &parse("1. First line here.", 2), Unit::Words);
         assert_eq!(out.len(), 2);
         assert_eq!(out[1].text, "second line here");
         assert_eq!(rejected, 1);
@@ -191,7 +227,7 @@ mod tests {
             seg(1500, 3000, "two"),
             seg(3000, 4200, "three"),
         ];
-        let (out, _) = apply(&src, &parse("2. Two.\n1. One.\n3. Three.", 3));
+        let (out, _) = apply(&src, &parse("2. Two.\n1. One.\n3. Three.", 3), Unit::Words);
         assert_eq!(
             out.iter().map(|s| (s.t0, s.t1)).collect::<Vec<_>>(),
             vec![(0, 1500), (1500, 3000), (3000, 4200)]
@@ -205,7 +241,7 @@ mod tests {
         // assume one byte per character. Multi-byte coverage cannot be written in
         // plain ASCII; umlauts are the shortest fixture that exercises it.
         let src = [seg(0, 1, "grüße wie geht es")];
-        let (out, rejected) = apply(&src, &parse("1. Grüße, wie geht es?", 1));
+        let (out, rejected) = apply(&src, &parse("1. Grüße, wie geht es?", 1), Unit::Words);
         assert_eq!(out[0].text, "Grüße, wie geht es?");
         assert_eq!(rejected, 0);
     }
@@ -213,10 +249,11 @@ mod tests {
     #[test]
     fn rejects_a_line_the_model_summarized() {
         let long = "we drove into town and there were a great many people on the square";
-        assert!(!plausible(long, "We drove."));
+        assert!(!plausible(long, "We drove.", Unit::Words));
         assert!(plausible(
             long,
-            "We drove into town, and there were a great many people on the square."
+            "We drove into town, and there were a great many people on the square.",
+            Unit::Words
         ));
     }
 
@@ -224,18 +261,39 @@ mod tests {
     fn rejects_a_line_the_model_expanded_into_its_own_text() {
         assert!(!plausible(
             "well yes",
-            "Yes, naturally, I agree with you entirely on this question."
+            "Yes, naturally, I agree with you entirely on this question.",
+            Unit::Words
         ));
     }
 
     #[test]
     fn filler_only_lines_may_shrink_a_lot() {
         // Short lines get the fixed slack: "er, well" may become "Well".
-        assert!(plausible("er well sort of", "Well, sort of"));
+        assert!(plausible("er well sort of", "Well, sort of", Unit::Words));
+    }
+
+    #[test]
+    fn a_dropped_utterance_is_caught_in_a_language_without_spaces() {
+        // Japanese and Chinese put no spaces between words, so counting words finds
+        // one "word" on each side and every answer passes. Counting characters is
+        // what makes the check work there at all.
+        let long = "そうですねそれはとても難しいプロジェクトでした";
+        let gutted = "はい";
+        assert!(
+            plausible(long, gutted, Unit::Words),
+            "words cannot tell these apart"
+        );
+        assert!(!plausible(long, gutted, Unit::Chars));
+        // A real edit of the same line still passes.
+        assert!(plausible(
+            long,
+            "そうですね、それはとても難しいプロジェクトでした。",
+            Unit::Chars
+        ));
     }
 
     #[test]
     fn an_empty_answer_is_never_used() {
-        assert!(!plausible("something was said", "   "));
+        assert!(!plausible("something was said", "   ", Unit::Words));
     }
 }
