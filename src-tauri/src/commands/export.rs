@@ -24,11 +24,11 @@ pub fn cmd_export_transcript(
     output_path: String,
 ) -> Result<(), AppError> {
     match format {
-        ExportFormat::Txt  => std::fs::write(&output_path, to_txt(&segments))?,
-        ExportFormat::Srt  => std::fs::write(&output_path, to_srt(&segments))?,
-        ExportFormat::Vtt  => std::fs::write(&output_path, to_vtt(&segments))?,
+        ExportFormat::Txt => std::fs::write(&output_path, to_txt(&segments))?,
+        ExportFormat::Srt => std::fs::write(&output_path, to_srt(&segments))?,
+        ExportFormat::Vtt => std::fs::write(&output_path, to_vtt(&segments))?,
         ExportFormat::Json => std::fs::write(&output_path, to_json(&segments)?)?,
-        ExportFormat::Md   => std::fs::write(&output_path, to_md(&segments))?,
+        ExportFormat::Md => std::fs::write(&output_path, to_md(&segments))?,
         ExportFormat::Docx => write_docx(&segments, &output_path)?,
     }
     Ok(())
@@ -51,7 +51,10 @@ pub fn cmd_export_summary(
 // ---------------------------------------------------------------------------
 
 fn to_txt(segs: &[Segment]) -> String {
-    segs.iter().map(|s| s.text.as_str()).collect::<Vec<_>>().join(" ")
+    segs.iter()
+        .map(|s| s.text.as_str())
+        .collect::<Vec<_>>()
+        .join(" ")
 }
 
 fn to_srt(segs: &[Segment]) -> String {
@@ -99,13 +102,16 @@ fn to_md(segs: &[Segment]) -> String {
 /// Builds a real .docx: a bold title, then one paragraph per segment with the
 /// timecode in bold followed by the text. Writes straight to the chosen path.
 fn write_docx(segs: &[Segment], path: &str) -> AppResult<()> {
-    let mut docx = Docx::new().add_paragraph(
-        Paragraph::new().add_run(Run::new().add_text("Transcript").bold().size(32)),
-    );
+    let mut docx = Docx::new()
+        .add_paragraph(Paragraph::new().add_run(Run::new().add_text("Transcript").bold().size(32)));
     for s in segs {
         docx = docx.add_paragraph(
             Paragraph::new()
-                .add_run(Run::new().add_text(format!("[{}] ", ms_to_srt(s.t0))).bold())
+                .add_run(
+                    Run::new()
+                        .add_text(format!("[{}] ", ms_to_srt(s.t0)))
+                        .bold(),
+                )
                 .add_run(Run::new().add_text(s.text.as_str())),
         );
     }
@@ -119,9 +125,8 @@ fn write_docx(segs: &[Segment], path: &str) -> AppResult<()> {
 /// Builds a .docx from a plain/Markdown summary: one paragraph per line (blank
 /// lines become empty paragraphs, preserving the spacing between points).
 fn write_summary_docx(summary: &str, path: &str) -> AppResult<()> {
-    let mut docx = Docx::new().add_paragraph(
-        Paragraph::new().add_run(Run::new().add_text("Summary").bold().size(32)),
-    );
+    let mut docx = Docx::new()
+        .add_paragraph(Paragraph::new().add_run(Run::new().add_text("Summary").bold().size(32)));
     for line in summary.lines() {
         docx = docx.add_paragraph(Paragraph::new().add_run(Run::new().add_text(line)));
     }
@@ -133,17 +138,17 @@ fn write_summary_docx(summary: &str, path: &str) -> AppResult<()> {
 }
 
 fn ms_to_srt(ms: i64) -> String {
-    let h      = ms / 3_600_000;
-    let m      = (ms % 3_600_000) / 60_000;
-    let s      = (ms % 60_000) / 1_000;
+    let h = ms / 3_600_000;
+    let m = (ms % 3_600_000) / 60_000;
+    let s = (ms % 60_000) / 1_000;
     let millis = ms % 1_000;
     format!("{h:02}:{m:02}:{s:02},{millis:03}")
 }
 
 fn ms_to_vtt(ms: i64) -> String {
-    let h      = ms / 3_600_000;
-    let m      = (ms % 3_600_000) / 60_000;
-    let s      = (ms % 60_000) / 1_000;
+    let h = ms / 3_600_000;
+    let m = (ms % 3_600_000) / 60_000;
+    let s = (ms % 60_000) / 1_000;
     let millis = ms % 1_000;
     format!("{h:02}:{m:02}:{s:02}.{millis:03}")
 }
@@ -154,9 +159,18 @@ mod tests {
 
     fn sample() -> Vec<Segment> {
         vec![
-            Segment { t0: 0, t1: 1_500, text: "Hello world".into() },
-            // 1h 2m 3s 456ms: exercises padding and the hours field.
-            Segment { t0: 3_723_456, t1: 3_725_000, text: "Привет, мир".into() },
+            Segment {
+                t0: 0,
+                t1: 1_500,
+                text: "Hello world".into(),
+            },
+            // 1h 2m 3s 456ms: exercises padding and the hours field. The text is
+            // multi-byte so the writers are exercised on more than ASCII.
+            Segment {
+                t0: 3_723_456,
+                t1: 3_725_000,
+                text: "Grüße, Welt".into(),
+            },
         ]
     }
 
@@ -165,7 +179,10 @@ mod tests {
         use std::sync::atomic::{AtomicU32, Ordering};
         static N: AtomicU32 = AtomicU32::new(0);
         let id = N.fetch_add(1, Ordering::Relaxed);
-        std::env::temp_dir().join(format!("voodooscribe_test_{}_{id}.{ext}", std::process::id()))
+        std::env::temp_dir().join(format!(
+            "voodooscribe_test_{}_{id}.{ext}",
+            std::process::id()
+        ))
     }
 
     #[test]
@@ -179,14 +196,14 @@ mod tests {
 
     #[test]
     fn txt_joins_text_only() {
-        assert_eq!(to_txt(&sample()), "Hello world Привет, мир");
+        assert_eq!(to_txt(&sample()), "Hello world Grüße, Welt");
     }
 
     #[test]
     fn srt_has_index_arrow_and_text() {
         let out = to_srt(&sample());
         assert!(out.starts_with("1\n00:00:00,000 --> 00:00:01,500\nHello world"));
-        assert!(out.contains("2\n01:02:03,456 --> 01:02:05,000\nПривет, мир"));
+        assert!(out.contains("2\n01:02:03,456 --> 01:02:05,000\nGrüße, Welt"));
         assert!(out.contains(" --> "));
     }
 
@@ -217,7 +234,11 @@ mod tests {
     // magic "PK".
     fn assert_valid_docx(path: &std::path::Path) {
         let bytes = std::fs::read(path).unwrap();
-        assert!(bytes.len() > 100, "docx unexpectedly tiny: {} bytes", bytes.len());
+        assert!(
+            bytes.len() > 100,
+            "docx unexpectedly tiny: {} bytes",
+            bytes.len()
+        );
         assert_eq!(&bytes[..2], b"PK", "not a ZIP/docx file");
     }
 
@@ -250,7 +271,10 @@ mod tests {
             let path = temp_path(ext);
             let p = path.to_str().unwrap().to_string();
             cmd_export_transcript(sample(), fmt, p).unwrap();
-            assert!(std::fs::metadata(&path).unwrap().len() > 0, ".{ext} is empty");
+            assert!(
+                std::fs::metadata(&path).unwrap().len() > 0,
+                ".{ext} is empty"
+            );
             let _ = std::fs::remove_file(&path);
         }
     }
@@ -265,7 +289,10 @@ mod tests {
             let path = temp_path(ext);
             let p = path.to_str().unwrap().to_string();
             cmd_export_summary("## Summary\n\nIt is about cats.".into(), fmt, p).unwrap();
-            assert!(std::fs::metadata(&path).unwrap().len() > 0, ".{ext} is empty");
+            assert!(
+                std::fs::metadata(&path).unwrap().len() > 0,
+                ".{ext} is empty"
+            );
             let _ = std::fs::remove_file(&path);
         }
     }
