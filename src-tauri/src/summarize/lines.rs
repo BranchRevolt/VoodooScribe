@@ -126,7 +126,11 @@ pub fn apply(segments: &[Segment], answers: &[Option<String>]) -> (Vec<Segment>,
                     seg.text.clone()
                 }
             };
-            Segment { t0: seg.t0, t1: seg.t1, text }
+            Segment {
+                t0: seg.t0,
+                t1: seg.t1,
+                text,
+            }
         })
         .collect();
     (out, rejected)
@@ -137,70 +141,101 @@ mod tests {
     use super::*;
 
     fn seg(t0: i64, t1: i64, text: &str) -> Segment {
-        Segment { t0, t1, text: text.to_string() }
+        Segment {
+            t0,
+            t1,
+            text: text.to_string(),
+        }
     }
 
     #[test]
     fn numbers_from_one() {
-        let s = [seg(0, 1, "привет"), seg(1, 2, "как дела")];
-        assert_eq!(number(&s), "1. привет\n2. как дела");
+        let s = [seg(0, 1, "hello"), seg(1, 2, "how are you")];
+        assert_eq!(number(&s), "1. hello\n2. how are you");
     }
 
     #[test]
     fn parses_both_numbering_styles() {
-        let got = parse("1. Первый.\n2) Второй.", 2);
-        assert_eq!(got, vec![Some("Первый.".into()), Some("Второй.".into())]);
+        let got = parse("1. First.\n2) Second.", 2);
+        assert_eq!(got, vec![Some("First.".into()), Some("Second.".into())]);
     }
 
     #[test]
     fn glues_wrapped_continuations_back_on() {
-        let got = parse("1. Начало строки\nи её продолжение.\n2. Вторая.", 2);
-        assert_eq!(got[0].as_deref(), Some("Начало строки и её продолжение."));
+        let got = parse("1. Start of the line\nand its continuation.\n2. Second.", 2);
+        assert_eq!(
+            got[0].as_deref(),
+            Some("Start of the line and its continuation.")
+        );
     }
 
     #[test]
     fn ignores_chatter_and_out_of_range_numbers() {
-        let got = parse("Here is the edited text:\n1. Готово.\n7. Лишняя.", 2);
-        assert_eq!(got, vec![Some("Готово.".into()), None]);
+        let got = parse("Here is the edited text:\n1. Done.\n7. Spare.", 2);
+        assert_eq!(got, vec![Some("Done.".into()), None]);
     }
 
     #[test]
     fn a_missing_number_keeps_the_original_line() {
-        let src = [seg(0, 1, "первая строка тут"), seg(1, 2, "вторая строка тут")];
-        let (out, rejected) = apply(&src, &parse("1. Первая строка тут.", 2));
+        let src = [seg(0, 1, "first line here"), seg(1, 2, "second line here")];
+        let (out, rejected) = apply(&src, &parse("1. First line here.", 2));
         assert_eq!(out.len(), 2);
-        assert_eq!(out[1].text, "вторая строка тут");
+        assert_eq!(out[1].text, "second line here");
         assert_eq!(rejected, 1);
     }
 
     #[test]
     fn timecodes_and_order_always_survive() {
-        let src = [seg(0, 1500, "раз"), seg(1500, 3000, "два"), seg(3000, 4200, "три")];
-        let (out, _) = apply(&src, &parse("2. Два.\n1. Раз.\n3. Три.", 3));
-        assert_eq!(out.iter().map(|s| (s.t0, s.t1)).collect::<Vec<_>>(), vec![(0, 1500), (1500, 3000), (3000, 4200)]);
-        assert_eq!(out[1].text, "Два.");
+        let src = [
+            seg(0, 1500, "one"),
+            seg(1500, 3000, "two"),
+            seg(3000, 4200, "three"),
+        ];
+        let (out, _) = apply(&src, &parse("2. Two.\n1. One.\n3. Three.", 3));
+        assert_eq!(
+            out.iter().map(|s| (s.t0, s.t1)).collect::<Vec<_>>(),
+            vec![(0, 1500), (1500, 3000), (3000, 4200)]
+        );
+        assert_eq!(out[1].text, "Two.");
+    }
+
+    #[test]
+    fn multi_byte_text_is_counted_by_characters_not_bytes() {
+        // The pass runs on transcripts in any language, so the word walk must not
+        // assume one byte per character. Multi-byte coverage cannot be written in
+        // plain ASCII; umlauts are the shortest fixture that exercises it.
+        let src = [seg(0, 1, "grüße wie geht es")];
+        let (out, rejected) = apply(&src, &parse("1. Grüße, wie geht es?", 1));
+        assert_eq!(out[0].text, "Grüße, wie geht es?");
+        assert_eq!(rejected, 0);
     }
 
     #[test]
     fn rejects_a_line_the_model_summarized() {
-        let long = "мы поехали в город и там было очень много людей на площади";
-        assert!(!plausible(long, "Поехали."));
-        assert!(plausible(long, "Мы поехали в город, и там было очень много людей на площади."));
+        let long = "we drove into town and there were a great many people on the square";
+        assert!(!plausible(long, "We drove."));
+        assert!(plausible(
+            long,
+            "We drove into town, and there were a great many people on the square."
+        ));
     }
 
     #[test]
     fn rejects_a_line_the_model_expanded_into_its_own_text() {
-        assert!(!plausible("ну да", "Да, разумеется, я полностью с вами согласен по этому вопросу."));
+        assert!(!plausible(
+            "well yes",
+            "Yes, naturally, I agree with you entirely on this question."
+        ));
     }
 
     #[test]
     fn filler_only_lines_may_shrink_a_lot() {
-        // Short lines get the fixed slack: "э-э, ну" may become "Ну".
-        assert!(plausible("э-э ну как бы", "Ну, как бы"));
+        // Short lines get the fixed slack: "er, well" may become "Well".
+        assert!(plausible("er well sort of", "Well, sort of"));
     }
 
     #[test]
     fn an_empty_answer_is_never_used() {
-        assert!(!plausible("что-то было сказано", "   "));
+        assert!(!plausible("something was said", "   "));
     }
 }
