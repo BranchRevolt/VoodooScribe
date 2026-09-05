@@ -1,0 +1,36 @@
+/* SPDX-FileCopyrightText: 2026 WarpCoreDev
+   SPDX-License-Identifier: GPL-3.0-or-later */
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  html {
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+  }
+
+  /* A native <select> popup is drawn by the platform, not by the page. Without an
+     explicit colour-scheme WebKitGTK takes it from the system GTK theme, which
+     renders light mode as white-on-white on a dark desktop. Binding the scheme to
+     the theme class covers every native control at once: dropdowns, checkboxes,
+     scrollbars and the caret. */
+  html { color-scheme: light; }
+  html.dark { color-scheme: dark; }
+
+  /* Some WebKitGTK builds honour colours set on the options themselves, others
+     only the scheme above; both are set so neither case is left out. */
+  option { @apply bg-white text-zinc-800; }
+  html.dark option { @apply bg-zinc-900 text-zinc-200; }
+
+  ::-webkit-scrollbar { width: 5px; height: 5px; }
+  ::-webkit-scrollbar-track { @apply bg-transparent; }
+  ::-webkit-scrollbar-thumb { @apply bg-zinc-200 dark:bg-zinc-700 rounded-full; }
+  ::-webkit-scrollbar-thumb:hover { @apply bg-zinc-300 dark:bg-zinc-600; }
+}
+
+@layer components {
+  /* Body colour for the summary's rendered Markdown in dark mode. */
+  .prose-invert { --tw-prose-body: theme(colors.zinc.300); }
+}
