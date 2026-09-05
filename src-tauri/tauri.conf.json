@@ -1,0 +1,53 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "productName": "VoodooScribe",
+  "version": "1.0.0",
+  "identifier": "com.voodooscribe.app",
+  "build": {
+    "frontendDist": "../dist",
+    "devUrl": "http://localhost:5173",
+    "beforeDevCommand": "npm run dev",
+    "beforeBuildCommand": "npm run build"
+  },
+  "app": {
+    "windows": [
+      {
+        "label": "main",
+        "title": "VoodooScribe",
+        "width": 1100,
+        "height": 740,
+        "minWidth": 800,
+        "minHeight": 600,
+        "resizable": true,
+        "fullscreen": false
+      }
+    ],
+    "security": {
+      "csp": null
+    },
+    "enableGTKAppId": true
+  },
+  "bundle": {
+    "active": true,
+    "copyright": "Copyright (C) 2026 WarpCoreDev",
+    "license": "GPL-3.0-or-later",
+    "licenseFile": "../LICENSE",
+    "publisher": "WarpCoreDev",
+    "shortDescription": "Fully offline audio and video transcription",
+    "longDescription": "Transcribe audio and video entirely on your own machine using local Whisper and LLM models. No cloud, no account, no data leaving the device.",
+    "targets": "all",
+    "externalBin": [
+      "binaries/ffmpeg"
+    ],
+    "icon": [
+      "icons/32x32.png",
+      "icons/128x128.png",
+      "icons/128x128@2x.png",
+      "icons/icon.icns",
+      "icons/icon.ico"
+    ],
+    "resources": {
+      "resources/**/*": "resources/"
+    }
+  }
+}

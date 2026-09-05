@@ -1,0 +1,96 @@
+[package]
+name = "voodooscribe"
+version = "1.0.0"
+edition = "2021"
+rust-version = "1.82"
+license = "GPL-3.0-or-later"
+authors = ["WarpCoreDev"]
+description = "Fully offline audio and video transcription with local Whisper and LLM models"
+
+[lib]
+name = "voodooscribe_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[[bin]]
+name = "voodooscribe"
+path = "src/main.rs"
+
+[dependencies]
+tauri = { version = "2.1", features = [] }
+tauri-plugin-dialog = "2"
+tauri-plugin-fs = "2"
+tauri-plugin-shell = "2"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+thiserror = "1"
+tokio = { version = "1", features = ["full"] }
+anyhow = "1"
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+
+# Audio decode + resample
+symphonia = { version = "0.5", features = ["all"] }
+rubato = "0.15"
+
+# Whisper & LLaMA are GPU-accelerated, declared per-platform below
+# ([target.*.dependencies]): Vulkan on Linux/Windows, Metal on macOS.
+
+# System info for RAM check
+sysinfo = "0.30"
+
+# Reqwest for model downloads
+reqwest = { version = "0.12", features = ["stream", "rustls-tls"], default-features = false }
+futures-util = "0.3"
+
+# SHA-256 verification for downloaded models
+sha2 = "0.10"
+hex = "0.4"
+
+# encoding_rs is a transitive dep of llama-cpp-2, declared here for token_to_piece
+encoding_rs = "0.8"
+
+# DOCX export
+docx-rs = "0.4"
+
+# Misc
+once_cell = "1"
+parking_lot = "0.12"
+uuid = { version = "1", features = ["v4"] }
+
+# GPU-accelerated inference, per platform: Vulkan covers Linux and Windows
+# (AMD/NVIDIA/Intel), macOS uses Metal.
+[target.'cfg(not(target_os = "macos"))'.dependencies]
+whisper-rs = { version = "=0.16.0", features = ["vulkan"] }
+llama-cpp-2 = { version = "0.1.85", features = ["vulkan"] }
+
+# GTK is already in the tree through tauri; the direct dependency is for resizing
+# the window in GTK's own coordinates (see monitor_fix.rs).
+[target.'cfg(target_os = "linux")'.dependencies]
+gtk = "0.18"
+
+[target.'cfg(target_os = "macos")'.dependencies]
+whisper-rs = { version = "=0.16.0", features = ["metal"] }
+llama-cpp-2 = { version = "0.1.85", features = ["metal"] }
+
+[build-dependencies]
+tauri-build = { version = "2.1", features = [] }
+
+[features]
+default = []
+
+[profile.dev]
+incremental = true
+# Full debuginfo on statically-linked whisper.cpp + llama.cpp bloats target/ to
+# ~20 GB. Line-tables keep usable backtraces (file:line) at a fraction of the size.
+debug = "line-tables-only"
+
+# The whisper/llama C++ libraries are never stepped into, so they need no
+# debuginfo at all; this trims the heaviest artifacts in target/debug/deps.
+[profile.dev.package."*"]
+debug = false
+
+[profile.release]
+lto = "thin"
+opt-level = 3
+codegen-units = 1
+strip = true
