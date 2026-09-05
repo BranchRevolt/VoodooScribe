@@ -25,7 +25,7 @@ Each binary is named with its Rust target triple so Tauri picks it up via
 
 ## Licensing notes
 
-VoodooScribe itself is **GPL-3.0-or-later**, so both FFmpeg build flavours are
+VoodooScribe itself is **GPL-3.0-or-later**, so both FFmpeg build flavors are
 compatible and no relicensing question arises.
 
 - Linux/Windows builds are **LGPL** (no `--enable-gpl`) — we only do audio decoding.
