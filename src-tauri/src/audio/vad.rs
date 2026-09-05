@@ -101,7 +101,7 @@ mod tests {
     /// Builds frame energies: `quiet` frames of near-silence, `loud` frames of speech.
     fn energies(quiet: usize, loud: usize, quiet_level: f32, loud_level: f32) -> Vec<f32> {
         let mut v = vec![quiet_level; quiet];
-        v.extend(std::iter::repeat(loud_level).take(loud));
+        v.extend(std::iter::repeat_n(loud_level, loud));
         v
     }
 
@@ -134,7 +134,7 @@ mod tests {
         let mut samples = Vec::new();
         for block in 0..60 {
             let level = if block % 5 == 0 { 0.0 } else { 0.01 };
-            samples.extend(std::iter::repeat(level).take(16_000));
+            samples.extend(std::iter::repeat_n(level, 16_000));
         }
         let ranges = split_on_silence(&samples);
         assert!(ranges.len() > 1, "a 60 s buffer must be split");
