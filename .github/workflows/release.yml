@@ -47,7 +47,9 @@ jobs:
           - platform: macos-14
             target: aarch64-apple-darwin
             macos_target: "11.0"
-          - platform: macos-13
+          # macos-13 no longer picks up jobs; llama.cpp's build-apple.yml uses this
+          # label for its Intel build.
+          - platform: macos-15-intel
             target: x86_64-apple-darwin
             macos_target: "10.15"
 
@@ -115,6 +117,17 @@ jobs:
         run: |
           choco install ninja -y --no-progress
           Add-Content $env:GITHUB_ENV "CMAKE_GENERATOR=Ninja"
+
+      # The nested vulkan-shaders-gen build nests its own directories deep enough
+      # that a compiler input lands at 261 characters, one past the 260 of
+      # MAX_PATH, and cl.exe reports the file as missing. Building into a short
+      # path keeps the whole tree 42 characters clear of the limit.
+      # tauri-action reads CARGO_TARGET_DIR when it looks for the bundles
+      # (src/utils.ts), so the artifacts are still found.
+      - name: Short build path
+        if: matrix.platform == 'windows-2025'
+        shell: pwsh
+        run: Add-Content $env:GITHUB_ENV "CARGO_TARGET_DIR=C:\b"
 
       # macOS needs no GPU SDK: Metal is part of the system.
 
