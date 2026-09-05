@@ -11,8 +11,8 @@
 //!
 //! The VAD is instead run directly through whisper-rs's `WhisperVadContext`, and
 //! whisper receives only the speech ranges, with timestamps offset back onto the
-//! original timeline. Silence then never reaches the model (no "Дякую за
-//! перегляд!" hallucinations) and no 30s window starts inside a long pause, which
+//! original timeline. Silence then never reaches the model, so it cannot
+//! hallucinate subtitle filler into it, and no 30s window starts inside a pause, which
 //! made whisper collapse the window into one bogus segment and skip the speech
 //! after it.
 
