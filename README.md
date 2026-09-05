@@ -12,6 +12,8 @@ No cloud. No account. No API key. Nothing ever leaves your device.
 [![Platform](https://img.shields.io/badge/platform-Linux%20%7C%20Windows%20%7C%20macOS-lightgrey.svg)](docs/BUILDING.md)
 [![Built with Tauri](https://img.shields.io/badge/built%20with-Tauri%202-24C8DB.svg)](https://tauri.app)
 
+<img src="assets/screenshots/transcribe_tab.png" alt="A transcribed lecture: timecoded segments, model and language controls, export menu" width="785">
+
 </div>
 
 ---
