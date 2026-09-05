@@ -1,0 +1,9 @@
+# whisper-rs-sys and llama-cpp-sys-2 both bundle their own ggml, causing duplicate
+# symbol errors at link time. --allow-multiple-definition picks the first definition
+# and discards the rest. Both ggml copies are ABI-compatible so this is safe.
+# macOS ld handles this automatically via dyld symbol resolution.
+[target.x86_64-unknown-linux-gnu]
+rustflags = ["-C", "link-arg=-Wl,--allow-multiple-definition"]
+
+[target.aarch64-unknown-linux-gnu]
+rustflags = ["-C", "link-arg=-Wl,--allow-multiple-definition"]
