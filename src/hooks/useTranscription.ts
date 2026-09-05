@@ -121,7 +121,7 @@ export function useTranscription() {
     );
 
     try {
-      const summary = await ipc.summarize(transcript, store.summaryMode);
+      const summary = await ipc.summarize(transcript, store.summaryMode, store.transcribeLang);
       store.updateQueueItem(item.id, { summary });
     } catch (err) {
       // Cancellation is a user action, not a failure.
@@ -151,7 +151,7 @@ export function useTranscription() {
     );
 
     try {
-      const polished = await ipc.polishTranscript(item.segments, mode);
+      const polished = await ipc.polishTranscript(item.segments, mode, store.transcribeLang);
       store.updateQueueItem(item.id, { polished });
       store.setReadableView(true);
     } catch (err) {
