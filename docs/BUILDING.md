@@ -29,7 +29,19 @@ Debian / Ubuntu:
 ```bash
 sudo apt install libwebkit2gtk-4.1-dev build-essential curl wget file \
      libxdo-dev libssl-dev libayatana-appindicator3-dev librsvg2-dev patchelf \
-     cmake vulkan-tools libvulkan-dev glslc
+     cmake vulkan-tools libvulkan-dev
+```
+
+The shader compiler `glslc` is a separate problem: Ubuntu has no package by that name
+before 24.04, and without it the Vulkan backends of whisper.cpp and llama.cpp will not
+configure. Take it from LunarG, which is what CI does (swap `jammy` for your release):
+
+```bash
+wget -qO- https://packages.lunarg.com/lunarg-signing-key-pub.asc \
+  | sudo tee /etc/apt/trusted.gpg.d/lunarg.asc > /dev/null
+sudo wget -qO /etc/apt/sources.list.d/lunarg-vulkan-jammy.list \
+  https://packages.lunarg.com/vulkan/lunarg-vulkan-jammy.list
+sudo apt update && sudo apt install vulkan-sdk
 ```
 
 Arch / CachyOS:
@@ -53,10 +65,12 @@ The canonical, always-current list of Tauri's own system dependencies lives at
 - CMake
 - The [Vulkan SDK](https://vulkan.lunarg.com/), which provides both the headers and `glslc`
 
-> **Untested.** `src-tauri/.cargo/config.toml` passes `-Wl,--allow-multiple-definition` on Linux
-> targets to resolve duplicate ggml symbols (whisper-rs-sys and llama-cpp-sys-2 each bundle their
-> own copy). The MSVC linker needs a different flag, probably `/FORCE:MULTIPLE`, and nobody has
-> confirmed this yet. Expect to fight the linker on the first Windows build.
+> **Two settings the Windows build needs.** `src-tauri/.cargo/config.toml` passes
+> `-Wl,--allow-multiple-definition` on Linux and `/FORCE:MULTIPLE` on `x86_64-pc-windows-msvc`,
+> which resolve the duplicate ggml symbols that whisper-rs-sys and llama-cpp-sys-2 each bring.
+> Build with the **Ninja** generator, not Visual Studio: ggml compiles its shader tool in a nested
+> CMake run that inherits no compiler under the VS generator. `.github/workflows/release.yml` does
+> both and builds cleanly; copy its environment if you build by hand.
 
 ### macOS
 
@@ -98,8 +112,8 @@ cd src-tauri
 cargo test
 ```
 
-The default run is fully offline: 44 tests covering export formatting, audio handling, the
-hallucination filter, VRAM arithmetic, chunking and catalog consistency.
+The default run is fully offline: 59 tests covering export formatting, audio handling, the
+hallucination filter, language resolution, VRAM arithmetic, chunking and catalog consistency.
 
 Tests that need real models are environment-gated and skip when the variables are unset:
 
@@ -156,8 +170,9 @@ The variable is forwarded into CMake by both `-sys` crates. Leaving it on is fin
 only run yourself. The release workflow sets it for every platform.
 
 **Duplicate ggml symbols at link time.** Both `whisper-rs-sys` and `llama-cpp-sys-2` bundle ggml.
-On Linux this is handled by `--allow-multiple-definition` in `src-tauri/.cargo/config.toml`. The two
-copies are ABI-compatible, so taking the first definition is safe.
+`src-tauri/.cargo/config.toml` handles it with `--allow-multiple-definition` on Linux and
+`/FORCE:MULTIPLE` on Windows; macOS needs nothing, because dyld picks one definition. The two
+copies are ABI-compatible, so taking the first is safe.
 
 **`target/` grew to tens of GB.** Statically linked whisper.cpp and llama.cpp with full debug info
 are enormous. The dev profile already limits this (`debug = "line-tables-only"`, dependencies built
