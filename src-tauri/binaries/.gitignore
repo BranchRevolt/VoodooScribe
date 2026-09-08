@@ -1,0 +1,5 @@
+# ffmpeg sidecar binaries are large and fetched by fetch-ffmpeg.sh. Never commit them.
+ffmpeg-*
+!.gitignore
+!fetch-ffmpeg.sh
+!README.md
